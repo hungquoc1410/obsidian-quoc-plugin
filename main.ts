@@ -2,7 +2,6 @@ import * as cheerio from 'cheerio'
 import {
 	moment,
 	App,
-	htmlToMarkdown,
 	Modal,
 	Notice,
 	Plugin,
@@ -10,7 +9,10 @@ import {
 	request,
 	requestUrl,
 	Setting,
+	htmlToMarkdown,
 } from 'obsidian'
+
+// Remember to rename these classes and interfaces!
 
 interface QuocPluginSettings {
 	goodReadsBookTemplate: string
@@ -24,7 +26,7 @@ interface GoodReadsBookNote {
 	content: string
 }
 
-interface GoodReadsBook {
+interface Podcast {
 	tags: string
 	author: string
 	date: string
@@ -35,7 +37,7 @@ interface GoodReadsBook {
 	desc: string
 }
 
-const DEFAULT_BOOK: GoodReadsBook = {
+const DEFAULT_PODCAST: Podcast = {
 	tags: '',
 	author: '',
 	date: '',
@@ -52,34 +54,6 @@ const DEFAULT_SETTINGS: QuocPluginSettings = {
 	fileName: '{{Title}}',
 	folder: '',
 	templatePath: '',
-}
-
-class goodReadsBookNoteCreator {
-	app: App
-	filenameTemplate: string
-
-	constructor(app: App, filenameTemplate: string) {
-		this.app = app
-		this.filenameTemplate = filenameTemplate
-	}
-
-	applyFileNameTemplate(book: GoodReadsBookNote) {
-		return this.filenameTemplate
-			.replace(/{{Title}}/g, book.title)
-			.replace(/{{Date}}/g, moment().format('YYYY-MM-DD'))
-			.replace(/[\\/:"*?<>|]*/g, '')
-	}
-
-	createGoodReadsBookNote(book: GoodReadsBookNote, folder: string) {
-		const fileName = this.applyFileNameTemplate(book)
-		try {
-			this.app.vault.create(folder + '/' + fileName + '.md', book.content)
-			return fileName
-		} catch (error) {
-			new Notice('Error creating GoodReads Book Note: ' + error)
-			return undefined
-		}
-	}
 }
 
 class GoodReadsBookParser {
@@ -104,13 +78,13 @@ class GoodReadsBookParser {
 		return str.replace(/[-|{|}|:|,|[|\]|||>|<|#|"|']/g, ' ')
 	}
 
-	sanitizeBook(book: GoodReadsBook) {
+	sanitizePodcast(book: Podcast) {
 		book.title = this.sanitizeString(book.title)
 		return book
 	}
 
-	applyTemplate(book: GoodReadsBook): GoodReadsBookNote {
-		book = this.sanitizeBook(book)
+	applyTemplate(book: Podcast): GoodReadsBookNote {
+		book = this.sanitizePodcast(book)
 		const content = this.template
 			.replace(/{{Title}}/g, book.title)
 			.replace(/{{Description}}/g, book.desc)
@@ -120,6 +94,7 @@ class GoodReadsBookParser {
 			.replace(/{{Rating}}/g, book.rating)
 			.replace(/{{Cover}}/g, book.cover)
 			.replace(/{{Total Page}}/g, book.page)
+			.replace(/{{Timestamp}}/g, Date.now().toString())
 		return { title: book.title, content: content }
 	}
 
@@ -127,8 +102,8 @@ class GoodReadsBookParser {
 		return text.replace(/(\r\n|\n|\r)/gm, '').trim()
 	}
 
-	async loadBook(html: string | Buffer): Promise<GoodReadsBook> {
-		const book = DEFAULT_BOOK
+	async loadBook(html: string | Buffer): Promise<Podcast> {
+		const book = DEFAULT_PODCAST
 
 		const $ = cheerio.load(html)
 
@@ -195,6 +170,33 @@ class GoodReadsBookParser {
 	}
 }
 
+class NoteCreator {
+	app: App
+	filenameTemplate: string
+
+	constructor(app: App, filenameTemplate: string) {
+		this.app = app
+		this.filenameTemplate = filenameTemplate
+	}
+
+	applyFileNameTemplate(book: GoodReadsBookNote) {
+		return this.filenameTemplate
+			.replace(/{{Title}}/g, book.title)
+			.replace(/{{Timestamp}}/g, Date.now().toString())
+			.replace(/{{Date}}/g, moment().format('YYYY-MM-DD'))
+			.replace(/[\\/:"*?<>|]*/g, '')
+	}
+
+	async createGoodReadsBookNote(book: GoodReadsBookNote, folder: string) {
+		const fileName = this.applyFileNameTemplate(book)
+		await this.app.vault.create(
+			folder + '/' + fileName + '.md',
+			book.content
+		)
+		return fileName
+	}
+}
+
 export default class QuocPlugin extends Plugin {
 	settings: QuocPluginSettings
 
@@ -245,19 +247,18 @@ export default class QuocPlugin extends Plugin {
 	async newGoodReadsBookNote(url: string) {
 		const template = await this.getTemplate()
 		const parser = new GoodReadsBookParser(template)
+
 		new Notice('Loading GoodReads Book Info')
+
 		const bookNote = await parser.getGoodReadsBookNote(url)
-		const nc = new goodReadsBookNoteCreator(
-			this.app,
-			this.settings.fileName
-		)
-		const newBookNote = nc.createGoodReadsBookNote(
+
+		const nc = new NoteCreator(this.app, this.settings.fileName)
+
+		const new_note = await nc.createGoodReadsBookNote(
 			bookNote,
 			this.settings.folder
 		)
-		if (newBookNote) {
-			this.app.workspace.openLinkText(newBookNote, this.settings.folder)
-		}
+		this.app.workspace.openLinkText(new_note, this.settings.folder)
 	}
 }
 
@@ -355,7 +356,7 @@ class QuocSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Filename template')
 			.setDesc(
-				'Filename template when "New note" is selected. Available placeholders are {{Title}}, {{Date}}'
+				'Filename template when "New note" is selected. Available placeholders are {{Title}}, {{Timestamp}}, {{Date}}'
 			)
 			.addTextArea((textarea) =>
 				textarea
