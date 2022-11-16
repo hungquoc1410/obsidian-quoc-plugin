@@ -80,7 +80,7 @@ class QuocPluginModal extends Modal {
 	onOpen() {
 		const { contentEl } = this
 		contentEl.createEl('h3', { text: 'Enter GoodReads URL:' })
-		const input = contentEl.createEl('input', { type: 'text' })
+		const input = contentEl.createEl('input', { type: 'text', cls: 'good_reads_input' })
 		contentEl.createEl('br')
 		contentEl.createEl('br')
 		const button = contentEl.createEl('button', {
